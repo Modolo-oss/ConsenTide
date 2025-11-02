@@ -1,0 +1,51 @@
+# Frontend Dockerfile
+FROM node:18-alpine AS builder
+
+WORKDIR /app
+
+# Copy package files
+COPY package*.json ./
+COPY shared/package*.json ./shared/
+COPY frontend/package*.json ./frontend/
+
+# Install dependencies
+RUN npm ci
+
+# Copy source code
+COPY shared ./shared
+COPY frontend ./frontend
+
+# Build shared types
+WORKDIR /app/shared
+RUN npm run build
+
+# Build frontend
+WORKDIR /app/frontend
+ENV NEXT_TELEMETRY_DISABLED 1
+RUN npm run build
+
+# Production stage
+FROM node:18-alpine
+
+WORKDIR /app
+
+# Copy built files
+COPY --from=builder /app/frontend/.next ./.next
+COPY --from=builder /app/frontend/public ./public
+COPY --from=builder /app/frontend/package*.json ./
+COPY --from=builder /app/frontend/next.config.js ./
+COPY --from=builder /app/node_modules ./node_modules
+COPY --from=builder /app/frontend/node_modules ./frontend/node_modules
+
+# Expose port
+EXPOSE 3000
+
+ENV NODE_ENV=production
+ENV PORT=3000
+
+# Health check
+HEALTHCHECK --interval=30s --timeout=3s --start-period=5s --retries=3 \
+  CMD node -e "require('http').get('http://localhost:3000', (r) => {process.exit(r.statusCode === 200 ? 0 : 1)})"
+
+# Start application
+CMD ["npm", "start"]
