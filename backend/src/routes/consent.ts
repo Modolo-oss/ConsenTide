@@ -1,5 +1,5 @@
 /**
- * Consent API routes
+ * Consent API routes with Supabase integration
  */
 
 import { Router, Request, Response } from 'express';
@@ -9,29 +9,31 @@ import {
   ConsentRevokeRequest,
   APIError
 } from '@consentire/shared';
-import { consentService } from '../services/consentService';
+import { supabaseConsentService } from '../services/supabaseConsentService';
+import { authenticateUser, optionalAuth } from '../middleware/supabaseAuth';
 import { logger } from '../utils/logger';
 
 export const consentRouter = Router();
 
 /**
  * POST /api/v1/consent/grant
- * Grant consent
+ * Grant consent (requires authentication)
  */
-consentRouter.post('/grant', async (req: Request, res: Response) => {
+consentRouter.post('/grant', authenticateUser, async (req: Request, res: Response) => {
   try {
     const request: ConsentGrantRequest = req.body;
+    const userId = req.user!.id; // From Supabase auth middleware
     
     // Validate request
-    if (!request.userId || !request.controllerId || !request.purpose) {
+    if (!request.controllerId || !request.purpose) {
       return res.status(400).json({
         code: 'VALIDATION_ERROR',
-        message: 'Missing required fields: userId, controllerId, purpose',
+        message: 'Missing required fields: controllerId, purpose',
         timestamp: Date.now()
       } as APIError);
     }
 
-    const result = await consentService.grantConsent(request);
+    const result = await supabaseConsentService.grantConsent(request, userId);
     res.status(201).json(result);
   } catch (error: any) {
     logger.error('Error granting consent', { error: error.message });
@@ -57,7 +59,7 @@ consentRouter.get('/verify/:userId/:controllerId/:purpose', async (req: Request,
       purpose: decodeURIComponent(purpose)
     };
 
-    const result = await consentService.verifyConsent(request);
+    const result = await supabaseConsentService.verifyConsent(request);
     
     if (!result.isValid) {
       return res.status(404).json(result);
@@ -76,17 +78,18 @@ consentRouter.get('/verify/:userId/:controllerId/:purpose', async (req: Request,
 
 /**
  * POST /api/v1/consent/revoke/:consentId
- * Revoke consent
+ * Revoke consent (requires authentication)
  */
-consentRouter.post('/revoke/:consentId', async (req: Request, res: Response) => {
+consentRouter.post('/revoke/:consentId', authenticateUser, async (req: Request, res: Response) => {
   try {
     const { consentId } = req.params;
-    const { userId, signature } = req.body;
+    const { signature } = req.body;
+    const userId = req.user!.id; // From Supabase auth middleware
     
-    if (!userId || !signature) {
+    if (!signature) {
       return res.status(400).json({
         code: 'VALIDATION_ERROR',
-        message: 'Missing required fields: userId, signature',
+        message: 'Missing required field: signature',
         timestamp: Date.now()
       } as APIError);
     }
@@ -97,7 +100,7 @@ consentRouter.post('/revoke/:consentId', async (req: Request, res: Response) => 
       signature
     };
 
-    const result = await consentService.revokeConsent(request);
+    const result = await supabaseConsentService.revokeConsent(request, userId);
     res.json(result);
   } catch (error: any) {
     logger.error('Error revoking consent', { error: error.message });
@@ -110,13 +113,43 @@ consentRouter.post('/revoke/:consentId', async (req: Request, res: Response) => 
 });
 
 /**
- * GET /api/v1/consent/user/:userId
- * Get all active consents for a user
+ * GET /api/v1/consent/user/me
+ * Get all active consents for authenticated user
  */
-consentRouter.get('/user/:userId', async (req: Request, res: Response) => {
+consentRouter.get('/user/me', authenticateUser, async (req: Request, res: Response) => {
+  try {
+    const userId = req.user!.id; // From Supabase auth middleware
+    const consents = await supabaseConsentService.getActiveConsents(userId);
+    res.json({ consents, count: consents.length });
+  } catch (error: any) {
+    logger.error('Error getting user consents', { error: error.message });
+    res.status(500).json({
+      code: 'INTERNAL_ERROR',
+      message: error.message || 'Failed to get user consents',
+      timestamp: Date.now()
+    } as APIError);
+  }
+});
+
+/**
+ * GET /api/v1/consent/user/:userId
+ * Get all active consents for a specific user (admin only)
+ */
+consentRouter.get('/user/:userId', authenticateUser, async (req: Request, res: Response) => {
   try {
     const { userId } = req.params;
-    const consents = consentService.getActiveConsents(userId);
+    const requestingUserId = req.user!.id;
+    
+    // Users can only access their own consents unless they're admin
+    if (userId !== requestingUserId && req.user!.role !== 'admin') {
+      return res.status(403).json({
+        code: 'FORBIDDEN',
+        message: 'Access denied: can only view your own consents',
+        timestamp: Date.now()
+      } as APIError);
+    }
+    
+    const consents = await supabaseConsentService.getActiveConsents(userId);
     res.json({ consents, count: consents.length });
   } catch (error: any) {
     logger.error('Error getting user consents', { error: error.message });

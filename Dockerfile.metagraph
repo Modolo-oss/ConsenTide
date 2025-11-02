@@ -1,0 +1,52 @@
+# Multi-stage build for ConsenTide Metagraph
+FROM openjdk:11-jdk-slim as builder
+
+# Install sbt
+RUN apt-get update && \
+    apt-get install -y curl && \
+    curl -L -o sbt.deb https://repo.scala-sbt.org/scalasbt/debian/sbt-1.9.6.deb && \
+    dpkg -i sbt.deb && \
+    rm sbt.deb && \
+    apt-get clean
+
+WORKDIR /build
+
+# Copy build files
+COPY metagraph/build.sbt ./
+COPY metagraph/project/ ./project/
+COPY metagraph/src/ ./src/
+
+# Build the JAR
+RUN sbt clean assembly
+
+# Runtime stage
+FROM openjdk:11-jre-slim
+
+WORKDIR /app
+
+# Copy the built JAR
+COPY --from=builder /build/target/scala-2.13/consentire-metagraph.jar ./
+
+# Create certificates directory
+RUN mkdir -p /app/certs
+
+# Copy node certificates (will be mounted in production)
+COPY p12-files/ ./certs/
+
+# Expose ports
+EXPOSE 9200 9201 9202
+
+# Health check
+HEALTHCHECK --interval=30s --timeout=10s --start-period=60s --retries=3 \
+  CMD curl -f http://localhost:9200/node/info || exit 1
+
+# Environment variables with defaults
+ENV CL_APP_ENV=prod
+ENV CL_PUBLIC_HTTP_PORT=9200
+ENV CL_P2P_HTTP_PORT=9201
+ENV CL_CLI_HTTP_PORT=9202
+ENV CL_KEYSTORE=/app/certs/node1.p12
+ENV CL_KEYALIAS=node1
+
+# Start the metagraph
+CMD ["java", "-Xmx2g", "-jar", "consentire-metagraph.jar", "run-initial-validator", "--ip", "0.0.0.0"]
