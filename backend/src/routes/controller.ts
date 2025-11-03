@@ -8,19 +8,19 @@ import {
   ControllerRegistrationResponse,
   APIError
 } from '@consentire/shared';
-import { generateControllerHash } from '../utils/crypto';
+import { authenticateUser, requireAdmin } from '../middleware/supabaseAuth';
+import { supabaseControllerService } from '../services/supabaseControllerService';
 import { logger } from '../utils/logger';
 
 export const controllerRouter = Router();
 
-// In-memory controller store (replace with database in production)
-const controllerStore: Map<string, ControllerRegistrationResponse> = new Map();
+// Production: use Supabase-backed service
 
 /**
  * POST /api/v1/controllers/register
  * Register a new data controller (organization)
  */
-controllerRouter.post('/register', async (req: Request, res: Response) => {
+controllerRouter.post('/register', authenticateUser, requireAdmin, async (req: Request, res: Response) => {
   try {
     const request: ControllerRegistrationRequest = req.body;
     
@@ -33,21 +33,7 @@ controllerRouter.post('/register', async (req: Request, res: Response) => {
       } as APIError);
     }
 
-    // Generate controller identifiers
-    const controllerId = hash(request.organizationId);
-    const controllerHash = generateControllerHash(request.organizationId);
-
-    const response: ControllerRegistrationResponse = {
-      controllerId,
-      controllerHash,
-      registeredAt: Date.now()
-    };
-
-    // Store controller
-    controllerStore.set(controllerId, response);
-
-    logger.info('Controller registered', { controllerId, controllerHash });
-
+    const response = await supabaseControllerService.registerController(request, req.user!.id);
     res.status(201).json(response);
   } catch (error: any) {
     logger.error('Error registering controller', { error: error.message });
@@ -63,20 +49,17 @@ controllerRouter.post('/register', async (req: Request, res: Response) => {
  * GET /api/v1/controllers/:controllerId
  * Get controller information
  */
-controllerRouter.get('/:controllerId', async (req: Request, res: Response) => {
+controllerRouter.get('/:controllerId', authenticateUser, requireAdmin, async (req: Request, res: Response) => {
   try {
     const { controllerId } = req.params;
-    const controller = controllerStore.get(controllerId);
-    
-    if (!controller) {
-      return res.status(404).json({
-        code: 'NOT_FOUND',
-        message: 'Controller not found',
-        timestamp: Date.now()
-      } as APIError);
-    }
-
-    res.json(controller);
+    const data = await supabaseControllerService.getController(controllerId);
+    res.json({
+      controllerId: data.id,
+      controllerHash: data.controller_hash,
+      organizationName: data.organization_name,
+      organizationId: data.organization_id,
+      registeredAt: new Date(data.created_at).getTime()
+    });
   } catch (error: any) {
     logger.error('Error getting controller', { error: error.message });
     res.status(500).json({

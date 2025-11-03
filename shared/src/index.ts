@@ -1,5 +1,3 @@
-/**
- * Shared types and interfaces for ConsenTide
- */
-
+// Main exports for ConsenTide shared module
 export * from './types';
+export * from './validation';

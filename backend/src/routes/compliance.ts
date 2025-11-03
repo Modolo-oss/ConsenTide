@@ -5,32 +5,31 @@
 import { Router, Request, Response } from 'express';
 import { ComplianceStatus, APIError } from '@consentire/shared';
 import { logger } from '../utils/logger';
+import { supabaseConsentService } from '../services/supabaseConsentService';
+import { authenticateUser, requireAdmin } from '../middleware/supabaseAuth';
 
 export const complianceRouter = Router();
 
 /**
- * GET /api/v1/compliance/:controllerHash
- * Get GDPR compliance status for a controller
+ * GET /api/v1/compliance/status/:controllerHash
+ * Get GDPR compliance status for a controller (admin only)
  */
-complianceRouter.get('/:controllerHash', async (req: Request, res: Response) => {
+complianceRouter.get('/status/:controllerHash', authenticateUser, requireAdmin, async (req: Request, res: Response) => {
   try {
     const { controllerHash } = req.params;
-    
-    // TODO: Calculate actual compliance status from consent records
-    // For now, return a placeholder status
+    const metrics = await supabaseConsentService.getComplianceMetrics(controllerHash);
     const complianceStatus: ComplianceStatus = {
-      controllerHash,
-      gdprArticle7: true,      // Conditions for consent
-      gdprArticle12: true,      // Transparent information
-      gdprArticle13: true,      // Information to be provided
-      gdprArticle17: true,      // Right to erasure
-      gdprArticle20: true,      // Data portability
-      gdprArticle25: true,      // Data protection by design
-      gdprArticle30: true,      // Records of processing
-      overallCompliance: 100,   // Percentage
-      lastAudit: Date.now()
+      controllerHash: metrics.controllerHash,
+      gdprArticle7: true,
+      gdprArticle12: true,
+      gdprArticle13: true,
+      gdprArticle17: true,
+      gdprArticle20: true,
+      gdprArticle25: true,
+      gdprArticle30: true,
+      overallCompliance: Math.round(metrics.complianceScore),
+      lastAudit: metrics.lastAudit
     };
-
     res.json(complianceStatus);
   } catch (error: any) {
     logger.error('Error getting compliance status', { error: error.message });
@@ -44,30 +43,20 @@ complianceRouter.get('/:controllerHash', async (req: Request, res: Response) => 
 
 /**
  * GET /api/v1/compliance/report/:controllerHash
- * Generate compliance report
+ * Generate detailed compliance report (admin only)
  */
-complianceRouter.get('/report/:controllerHash', async (req: Request, res: Response) => {
+complianceRouter.get('/report/:controllerHash', authenticateUser, requireAdmin, async (req: Request, res: Response) => {
   try {
     const { controllerHash } = req.params;
-    
-    // TODO: Generate actual compliance report
-    const report = {
-      controllerHash,
-      generatedAt: Date.now(),
-      summary: {
-        totalConsents: 0,
-        activeConsents: 0,
-        revokedConsents: 0,
-        expiredConsents: 0
-      },
-      complianceStatus: {
-        overallScore: 100,
-        articleCompliance: {}
-      },
-      recommendations: []
-    };
-
-    res.json(report);
+    const report = await supabaseConsentService.getComplianceReport(controllerHash);
+    res.json({
+      controller: report.controller,
+      metrics: report.metrics,
+      summary: report.summary,
+      recentConsents: report.recentConsents,
+      auditTrail: report.auditTrail,
+      generatedAt: Date.now()
+    });
   } catch (error: any) {
     logger.error('Error generating compliance report', { error: error.message });
     res.status(500).json({

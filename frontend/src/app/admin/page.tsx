@@ -9,25 +9,63 @@ import {
 } from '@heroicons/react/24/outline'
 import { api } from '@/lib/api'
 import { ComplianceStatus } from '@consentire/shared'
+import { createClient } from '@/lib/supabase'
 
 export default function AdminPage() {
   const [controllerHash, setControllerHash] = useState<string>('')
   const [compliance, setCompliance] = useState<ComplianceStatus | null>(null)
+  const [report, setReport] = useState<any | null>(null)
   const [loading, setLoading] = useState(false)
+  const [signedIn, setSignedIn] = useState(false)
+  const [isAdmin, setIsAdmin] = useState(false)
+
+  useEffect(() => {
+    const init = async () => {
+      const supabase = createClient()
+      const { data } = await supabase.auth.getSession()
+      const session = data.session
+
+      if (!session) {
+        setSignedIn(false)
+        setIsAdmin(false)
+        return
+      }
+
+      const token = session.access_token
+      if (token) {
+        localStorage.setItem('token', token)
+      }
+
+      const role = (session.user.app_metadata?.role || session.user.user_metadata?.role || 'user') as string
+      setSignedIn(true)
+      setIsAdmin(role === 'admin')
+    }
+
+    init()
+  }, [])
 
   const loadCompliance = async () => {
     if (!controllerHash) return
     
     setLoading(true)
     try {
-      const response = await api.get(`/compliance/${controllerHash}`)
-      setCompliance(response.data)
+      const [statusRes, reportRes] = await Promise.all([
+        api.get(`/compliance/status/${controllerHash}`),
+        api.get(`/compliance/report/${controllerHash}`)
+      ])
+      setCompliance(statusRes.data)
+      setReport(reportRes.data)
     } catch (error) {
       console.error('Failed to load compliance status:', error)
       alert('Failed to load compliance status')
     } finally {
       setLoading(false)
     }
+  }
+
+  const supabaseSignIn = async () => {
+    const supabase = createClient()
+    await supabase.auth.signInWithOAuth({ provider: 'github' })
   }
 
   const getComplianceColor = (score: number) => {
@@ -49,6 +87,19 @@ export default function AdminPage() {
       </header>
 
       <main className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
+        {!signedIn && (
+          <div className="bg-white rounded-lg shadow p-8 text-center mb-6">
+            <p className="text-gray-700 mb-4">Sign in as an administrator to view compliance analytics.</p>
+            <button onClick={supabaseSignIn} className="bg-primary-600 text-white px-4 py-2 rounded-lg font-semibold hover:bg-primary-700 transition">Sign in</button>
+          </div>
+        )}
+
+        {signedIn && !isAdmin && (
+          <div className="bg-white rounded-lg shadow p-8 text-center mb-6">
+            <p className="text-gray-700">You must be an administrator to access this console.</p>
+          </div>
+        )}
+
         {/* Compliance Search */}
         <div className="bg-white rounded-lg shadow-md p-6 mb-8">
           <h2 className="text-xl font-semibold text-gray-900 mb-4">GDPR Compliance Status</h2>
@@ -62,7 +113,7 @@ export default function AdminPage() {
             />
             <button
               onClick={loadCompliance}
-              disabled={loading || !controllerHash}
+              disabled={loading || !controllerHash || !isAdmin}
               className="bg-primary-600 text-white px-6 py-2 rounded-lg font-semibold hover:bg-primary-700 transition disabled:opacity-50"
             >
               {loading ? 'Loading...' : 'Check Compliance'}
@@ -71,7 +122,7 @@ export default function AdminPage() {
         </div>
 
         {/* Compliance Dashboard */}
-        {compliance && (
+        {isAdmin && compliance && (
           <div className="space-y-6">
             {/* Overall Score */}
             <div className="bg-white rounded-lg shadow-md p-6">
@@ -132,38 +183,50 @@ export default function AdminPage() {
             </div>
 
             {/* Compliance Report */}
-            <div className="bg-white rounded-lg shadow-md p-6">
-              <div className="flex items-center justify-between mb-4">
-                <h3 className="text-lg font-semibold text-gray-900">Compliance Report</h3>
-                <button
-                  onClick={async () => {
-                    try {
-                      const response = await api.get(`/compliance/report/${compliance.controllerHash}`)
-                      const blob = new Blob([JSON.stringify(response.data, null, 2)], { type: 'application/json' })
+            {report && (
+              <div className="bg-white rounded-lg shadow-md p-6">
+                <div className="flex items-center justify-between mb-4">
+                  <h3 className="text-lg font-semibold text-gray-900">Compliance Report</h3>
+                  <button
+                    onClick={() => {
+                      const blob = new Blob([JSON.stringify(report, null, 2)], { type: 'application/json' })
                       const url = URL.createObjectURL(blob)
                       const a = document.createElement('a')
                       a.href = url
                       a.download = `compliance-report-${compliance.controllerHash.substring(0, 8)}.json`
                       a.click()
                       URL.revokeObjectURL(url)
-                    } catch (error) {
-                      alert('Failed to generate report')
-                    }
-                  }}
-                  className="bg-primary-600 text-white px-4 py-2 rounded-lg text-sm font-semibold hover:bg-primary-700 transition"
-                >
-                  Download Report
-                </button>
+                    }}
+                    className="bg-primary-600 text-white px-4 py-2 rounded-lg text-sm font-semibold hover:bg-primary-700 transition"
+                  >
+                    Download Report
+                  </button>
+                </div>
+                <p className="text-sm text-gray-600 mb-4">
+                  Controller: {report.controller.organizationName} ({report.controller.organizationId})
+                </p>
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-4 text-sm text-gray-700">
+                  <div className="bg-gray-50 p-4 rounded-lg">
+                    <h4 className="font-semibold mb-2">Summary</h4>
+                    <p>Total Consents: {report.summary.totalConsents}</p>
+                    <p>Active: {report.summary.activeConsents}</p>
+                    <p>Revoked: {report.summary.revokedConsents}</p>
+                    <p>Expired: {report.summary.expiredConsents}</p>
+                  </div>
+                  <div className="bg-gray-50 p-4 rounded-lg">
+                    <h4 className="font-semibold mb-2">Latest Activity</h4>
+                    <p>Audit Entries: {report.auditTrail.length}</p>
+                    <p>Recent Consents: {report.recentConsents.length}</p>
+                    <p>Generated: {new Date(report.generatedAt).toLocaleString()}</p>
+                  </div>
+                </div>
               </div>
-              <p className="text-sm text-gray-600">
-                Last Audit: {new Date(compliance.lastAudit).toLocaleString()}
-              </p>
-            </div>
+            )}
           </div>
         )}
 
         {/* Empty State */}
-        {!compliance && !loading && (
+        {isAdmin && !compliance && !loading && (
           <div className="bg-white rounded-lg shadow-md p-12 text-center">
             <ChartBarIcon className="h-16 w-16 text-gray-400 mx-auto mb-4" />
             <h3 className="text-xl font-semibold text-gray-900 mb-2">No Compliance Data</h3>

@@ -9,6 +9,7 @@ import {
   PlusIcon
 } from '@heroicons/react/24/outline'
 import { api } from '@/lib/api'
+import { createClient } from '@/lib/supabase'
 import {
   ConsentState,
   ConsentStatus,
@@ -21,38 +22,58 @@ export default function Dashboard() {
   const [consents, setConsents] = useState<ConsentState[]>([])
   const [showGrantForm, setShowGrantForm] = useState(false)
   const [loading, setLoading] = useState(false)
+  const [signedIn, setSignedIn] = useState(false)
 
   useEffect(() => {
-    // Initialize user (in production, handle authentication)
-    const storedUserId = localStorage.getItem('userId')
-    if (!storedUserId) {
-      // Simulate user registration
-      handleRegister()
-    } else {
-      setUserId(storedUserId)
-      loadConsents(storedUserId)
+    const init = async () => {
+      const supabase = createClient()
+      const { data } = await supabase.auth.getSession()
+      const accessToken = data.session?.access_token
+
+      if (!data.session) {
+        setSignedIn(false)
+        return
+      }
+
+      if (accessToken) {
+        localStorage.setItem('token', accessToken)
+      }
+
+      setSignedIn(true)
+      const uid = data.session.user.id
+      setUserId(uid)
+
+      try {
+        await api.get('/users/me/profile')
+      } catch {
+        await api.post('/users/register', { publicKey: `supabase:${uid}` })
+      }
+
+      await loadConsents()
     }
+    init()
   }, [])
 
-  const handleRegister = async () => {
-    try {
-      const response = await api.post('/users/register', {
-        email: `user_${Date.now()}@example.com`,
-        publicKey: `pk_${Date.now()}`
-      })
-      const userId = response.data.userId
-      localStorage.setItem('userId', userId)
-      setUserId(userId)
-      loadConsents(userId)
-    } catch (error) {
-      console.error('Registration failed:', error)
-    }
+  const supabaseSignIn = async () => {
+    const supabase = createClient()
+    await supabase.auth.signInWithOAuth({ provider: 'github' })
   }
 
-  const loadConsents = async (uid: string) => {
+  const loadConsents = async () => {
     try {
-      const response = await api.get(`/consent/user/${uid}`)
-      setConsents(response.data.consents || [])
+      const response = await api.get(`/consent/user/me`)
+      const rows = response.data.consents || []
+      const mapped: ConsentState[] = rows.map((r: any) => ({
+        consentId: r.id,
+        controllerHash: r.controller_hash,
+        purposeHash: r.purpose_hash,
+        status: r.status,
+        grantedAt: new Date(r.granted_at).getTime(),
+        expiresAt: r.expires_at ? new Date(r.expires_at).getTime() : undefined,
+        hgtpTxHash: r.hgtp_tx_hash || '',
+        userId: r.user_id,
+      }))
+      setConsents(mapped)
     } catch (error) {
       console.error('Failed to load consents:', error)
     }
@@ -61,8 +82,8 @@ export default function Dashboard() {
   const handleGrantConsent = async (data: ConsentGrantRequest) => {
     setLoading(true)
     try {
-      const response = await api.post('/consent/grant', data)
-      await loadConsents(userId!)
+      await api.post('/consent/grant', data)
+      await loadConsents()
       setShowGrantForm(false)
       alert('Consent granted successfully!')
     } catch (error: any) {
@@ -81,7 +102,7 @@ export default function Dashboard() {
         userId,
         signature: `sig_${Date.now()}`
       })
-      await loadConsents(userId!)
+      await loadConsents()
       alert('Consent revoked successfully!')
     } catch (error: any) {
       alert(`Failed to revoke consent: ${error.response?.data?.message || error.message}`)
@@ -101,19 +122,27 @@ export default function Dashboard() {
               <h1 className="text-2xl font-bold text-gray-900">ConsenTide Dashboard</h1>
             </div>
             <div className="text-sm text-gray-600">
-              User ID: {userId ? userId.substring(0, 16) + '...' : 'Loading...'}
+              {signedIn ? `User ID: ${userId?.substring(0, 16)}...` : 'Not signed in'}
             </div>
           </div>
         </div>
       </header>
 
       <main className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
+        {!signedIn && (
+          <div className="bg-white rounded-lg shadow p-8 text-center mb-6">
+            <p className="text-gray-700 mb-4">Please sign in to manage your consents.</p>
+            <button onClick={supabaseSignIn} className="bg-primary-600 text-white px-4 py-2 rounded-lg font-semibold hover:bg-primary-700 transition">Sign in</button>
+          </div>
+        )}
+
         {/* Actions */}
         <div className="mb-6 flex justify-between items-center">
           <h2 className="text-2xl font-bold text-gray-900">My Consents</h2>
           <button
             onClick={() => setShowGrantForm(true)}
-            className="bg-primary-600 text-white px-4 py-2 rounded-lg font-semibold hover:bg-primary-700 transition flex items-center space-x-2"
+            disabled={!signedIn}
+            className="bg-primary-600 text-white px-4 py-2 rounded-lg font-semibold hover:bg-primary-700 transition flex items-center space-x-2 disabled:opacity-50 disabled:cursor-not-allowed"
           >
             <PlusIcon className="h-5 w-5" />
             <span>Grant New Consent</span>
@@ -121,17 +150,12 @@ export default function Dashboard() {
         </div>
 
         {/* Consents List */}
-        {consents.length === 0 ? (
+        {signedIn && consents.length === 0 ? (
           <div className="bg-white rounded-lg shadow p-8 text-center">
             <p className="text-gray-600 mb-4">You haven't granted any consents yet.</p>
-            <button
-              onClick={() => setShowGrantForm(true)}
-              className="text-primary-600 hover:text-primary-700 font-semibold"
-            >
-              Grant your first consent →
-            </button>
+            <button onClick={() => setShowGrantForm(true)} className="bg-primary-600 text-white px-4 py-2 rounded-lg font-semibold hover:bg-primary-700 transition">Grant Consent</button>
           </div>
-        ) : (
+        ) : signedIn ? (
           <div className="grid gap-4">
             {consents.map((consent) => (
               <ConsentCard
@@ -141,10 +165,12 @@ export default function Dashboard() {
               />
             ))}
           </div>
+        ) : (
+          <div />
         )}
 
         {/* Grant Consent Form */}
-        {showGrantForm && (
+        {signedIn && showGrantForm && (
           <GrantConsentForm
             userId={userId!}
             onSubmit={handleGrantConsent}
@@ -227,10 +253,11 @@ function GrantConsentForm({
   const [formData, setFormData] = useState({
     controllerId: '',
     purpose: '',
-    dataCategories: [] as string[],
+    dataCategories: ['email', 'name'] as string[],
     lawfulBasis: LegalBasis.CONSENT,
     expiresAt: ''
   })
+  const [dataCategoriesInput, setDataCategoriesInput] = useState('email, name')
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault()
@@ -262,6 +289,29 @@ function GrantConsentForm({
               className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-primary-500 focus:border-transparent"
               placeholder="Organization identifier"
             />
+          </div>
+          <div>
+            <label className="block text-sm font-medium text-gray-700 mb-1">
+              Data Categories
+            </label>
+            <input
+              type="text"
+              value={dataCategoriesInput}
+              onChange={(e) => {
+                const value = e.target.value
+                setDataCategoriesInput(value)
+                setFormData({
+                  ...formData,
+                  dataCategories: value
+                    .split(',')
+                    .map((item) => item.trim())
+                    .filter(Boolean)
+                })
+              }}
+              className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-primary-500 focus:border-transparent"
+              placeholder="email, name, address"
+            />
+            <p className="text-xs text-gray-500 mt-1">Comma-separated list of personal data fields requested.</p>
           </div>
           <div>
             <label className="block text-sm font-medium text-gray-700 mb-1">

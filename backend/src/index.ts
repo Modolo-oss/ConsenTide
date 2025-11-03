@@ -31,6 +31,37 @@ app.use(cors({
 app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
 
+// Basic in-memory rate limiter (production-friendly without extra deps)
+const RATE_LIMIT_WINDOW_MS = 60_000; // 1 minute
+const RATE_LIMIT_MAX = 120; // requests per window per IP
+type Bucket = { count: number; resetAt: number };
+const rateBuckets = new Map<string, Bucket>();
+
+app.use((req: Request, res: Response, next: NextFunction) => {
+  try {
+    const ip = req.ip || req.headers['x-forwarded-for'] as string || req.socket.remoteAddress || 'unknown';
+    const now = Date.now();
+    const bucket = rateBuckets.get(ip);
+    if (!bucket || now > bucket.resetAt) {
+      rateBuckets.set(ip, { count: 1, resetAt: now + RATE_LIMIT_WINDOW_MS });
+      return next();
+    }
+    bucket.count += 1;
+    if (bucket.count > RATE_LIMIT_MAX) {
+      const retryAfter = Math.max(0, Math.ceil((bucket.resetAt - now) / 1000));
+      res.setHeader('Retry-After', retryAfter.toString());
+      return res.status(429).json({
+        code: 'RATE_LIMITED',
+        message: 'Too many requests, please try again later.',
+        timestamp: now
+      });
+    }
+    return next();
+  } catch {
+    return next();
+  }
+});
+
 // Request logging
 app.use((req: Request, res: Response, next: NextFunction) => {
   logger.info(`${req.method} ${req.path}`, {

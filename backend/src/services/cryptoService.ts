@@ -5,7 +5,7 @@
 
 import * as ed25519 from '@noble/ed25519';
 import * as secp256k1 from '@noble/secp256k1';
-import { randomBytes } from 'crypto';
+import { createHash, randomBytes } from 'crypto';
 import { logger } from '../utils/logger';
 
 export enum SignatureAlgorithm {
@@ -92,7 +92,8 @@ class CryptographicService {
           break;
           
         case SignatureAlgorithm.SECP256K1:
-          signature = await secp256k1.sign(messageBytes, privateKeyBytes);
+          const secp256k1Signature = await secp256k1.sign(messageBytes, privateKeyBytes);
+          signature = secp256k1Signature.toBytes();
           const secp256k1PublicKey = secp256k1.getPublicKey(privateKeyBytes);
           publicKey = Buffer.from(secp256k1PublicKey).toString('hex');
           break;
@@ -224,8 +225,7 @@ class CryptographicService {
    * Hash data using SHA-256
    */
   hash(data: string): string {
-    const crypto = require('crypto');
-    return crypto.createHash('sha256').update(data, 'utf8').digest('hex');
+    return createHash('sha256').update(data, 'utf8').digest('hex');
   }
 
   /**

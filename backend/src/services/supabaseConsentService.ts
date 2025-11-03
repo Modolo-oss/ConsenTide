@@ -208,22 +208,14 @@ class SupabaseConsentService {
         };
       }
 
-      // Generate ZK proof for verification
-      const zkProof = await realZKService.generateVerificationProof(
-        consentRecord.controller_hash,
-        consentRecord.purpose_hash,
-        true,
-        new Date(consentRecord.granted_at).getTime()
-      );
-        consentId: consentRecord.id,
-        controllerHash: consentRecord.controller_hash,
-        purposeHash: consentRecord.purpose_hash,
-        status: ConsentStatus.GRANTED,
-        grantedAt: new Date(consentRecord.granted_at).getTime(),
-        expiresAt: consentRecord.expires_at ? new Date(consentRecord.expires_at).getTime() : undefined,
-        hgtpTxHash: consentRecord.hgtp_tx_hash || '',
-        userId: consentRecord.user_id
-      });
+  	  // Generate ZK proof for verification
+  	  const zkProof = await realZKService.generateVerificationProof(
+  	    consentRecord.controller_hash,
+  	    consentRecord.purpose_hash,
+  	    true,
+  	    new Date(consentRecord.granted_at).getTime()
+  	  );
+
 
       // Generate merkle proof from HGTP
       const merkleProof = await realHGTPService.getMerkleProof(consentRecord.id);
@@ -424,6 +416,99 @@ class SupabaseConsentService {
       };
     } catch (error) {
       logger.error('Failed to get compliance metrics', { error, controllerHash });
+      throw error;
+    }
+  }
+
+  /**
+   * Build detailed compliance report for a controller
+   */
+  async getComplianceReport(controllerHash: string) {
+    try {
+      const { data: controller, error: controllerError } = await supabaseAdmin
+        .from('controllers')
+        .select('*')
+        .eq('controller_hash', controllerHash)
+        .single();
+
+      if (controllerError || !controller) {
+        throw new Error('Controller not found');
+      }
+
+      const metrics = await this.getComplianceMetrics(controllerHash);
+
+      const { data: consents, error: consentError } = await supabaseAdmin
+        .from('consent_records')
+        .select('*')
+        .eq('controller_hash', controllerHash)
+        .order('granted_at', { ascending: false })
+        .limit(200);
+
+      if (consentError) {
+        throw new Error(`Failed to load consent records: ${consentError.message}`);
+      }
+
+      const { data: auditLogs, error: auditError } = await supabaseAdmin
+        .from('audit_logs')
+        .select('*')
+        .eq('controller_id', controller.id)
+        .order('created_at', { ascending: false })
+        .limit(200);
+
+      if (auditError) {
+        throw new Error(`Failed to load audit logs: ${auditError.message}`);
+      }
+
+      const statusCounts = {
+        granted: consents?.filter(c => c.status === 'granted').length || 0,
+        revoked: consents?.filter(c => c.status === 'revoked').length || 0,
+        expired: consents?.filter(c => c.status === 'expired').length || 0
+      };
+
+      const recentConsents = (consents || []).slice(0, 25).map(record => ({
+        consentId: record.id,
+        purpose: record.purpose,
+        status: record.status,
+        grantedAt: record.granted_at,
+        expiresAt: record.expires_at,
+        revokedAt: record.revoked_at,
+        hgtpTxHash: record.hgtp_tx_hash,
+        lawfulBasis: record.lawful_basis,
+        dataCategories: record.data_categories
+      }));
+
+      const recentAuditLogs = (auditLogs || []).slice(0, 50).map(log => ({
+        id: log.id,
+        action: log.action,
+        consentId: log.consent_id,
+        userId: log.user_id,
+        details: log.details,
+        hgtpTxHash: log.hgtp_tx_hash,
+        timestamp: log.created_at
+      }));
+
+      return {
+        controller: {
+          id: controller.id,
+          organizationName: controller.organization_name,
+          organizationId: controller.organization_id,
+          controllerHash: controller.controller_hash,
+          createdAt: controller.created_at
+        },
+        metrics,
+        summary: {
+          totalConsents: metrics.totalConsents,
+          activeConsents: metrics.activeConsents,
+          revokedConsents: metrics.revokedConsents,
+          expiredConsents: metrics.expiredConsents,
+          statusCounts,
+          lastUpdated: Date.now()
+        },
+        recentConsents,
+        auditTrail: recentAuditLogs
+      };
+    } catch (error) {
+      logger.error('Failed to build compliance report', { error, controllerHash });
       throw error;
     }
   }

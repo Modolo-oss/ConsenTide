@@ -51,10 +51,14 @@ export const authenticateUser = async (req: Request, res: Response, next: NextFu
     }
 
     // Add user info to request
+    const appMetadata = user.user.app_metadata as Record<string, any> | undefined;
+    const userMetadata = user.user.user_metadata as Record<string, any> | undefined;
+    const role = (appMetadata?.role || userMetadata?.role || user.user.role || 'user') as string;
+
     req.user = {
       id: user.user.id,
       email: user.user.email,
-      role: user.user.role
+      role
     };
 
     logger.info('User authenticated', { 
@@ -88,10 +92,14 @@ export const optionalAuth = async (req: Request, res: Response, next: NextFuncti
     const { data: user, error } = await supabaseAdmin.auth.getUser(token);
 
     if (!error && user.user) {
+      const appMetadata = user.user.app_metadata as Record<string, any> | undefined;
+      const userMetadata = user.user.user_metadata as Record<string, any> | undefined;
+      const role = (appMetadata?.role || userMetadata?.role || user.user.role || 'user') as string;
+
       req.user = {
         id: user.user.id,
         email: user.user.email,
-        role: user.user.role
+        role
       };
     }
 

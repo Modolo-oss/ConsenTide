@@ -1,6 +1,5 @@
-/**
- * Core data types for ConsenTide GDPR Consent Management
- */
+// Shared TypeScript types for ConsenTide project
+// This file provides common interfaces and types used across frontend, backend, and metagraph
 
 export enum LegalBasis {
   CONSENT = "consent",
@@ -221,7 +220,7 @@ export interface VoteResult {
 export interface UserRegistrationRequest {
   email: string;             // Will be hashed
   publicKey: string;         // Cryptographic public key
-  metadata?: Record<string, any>;
+  metadata?: Record<string, unknown>;
 }
 
 /**
@@ -241,7 +240,7 @@ export interface ControllerRegistrationRequest {
   organizationName: string;
   organizationId: string;     // Legal entity identifier
   publicKey: string;
-  metadata?: Record<string, any>;
+  metadata?: Record<string, unknown>;
 }
 
 /**
@@ -278,7 +277,7 @@ export interface AuditLogEntry {
   consentId?: string;
   controllerHash?: string;
   userId?: string;
-  details: Record<string, any>;
+  details: Record<string, unknown>;
   hgtpTxHash: string;
 }
 
@@ -299,6 +298,64 @@ export interface ElPacaBalance {
 export interface APIError {
   code: string;
   message: string;
-  details?: Record<string, any>;
+  details?: Record<string, unknown>;
   timestamp: number;
+}
+
+/**
+ * Database connection interface
+ */
+export interface DatabaseConfig {
+  host: string;
+  port: number;
+  database: string;
+  username: string;
+  password: string;
+  ssl?: boolean;
+}
+
+/**
+ * Redis configuration
+ */
+export interface RedisConfig {
+  host: string;
+  port: number;
+  password?: string;
+  db?: number;
+  keyPrefix?: string;
+}
+
+/**
+ * Environment configuration
+ */
+export interface EnvConfig {
+  nodeEnv: string;
+  port: number;
+  supabase: {
+    url: string;
+    anonKey: string;
+    serviceRoleKey: string;
+  };
+  jwt: {
+    secret: string;
+    expiresIn: string;
+  };
+  database: DatabaseConfig;
+  redis: RedisConfig;
+  constellation: {
+    nodeUrl: string;
+    networkId: string;
+    walletAddress: string;
+    privateKey: string;
+    publicKey: string;
+  };
+  encryption: {
+    key: string;
+    iv: string;
+    salt: string;
+  };
+  rateLimit: {
+    windowMs: number;
+    maxRequests: number;
+  };
 }

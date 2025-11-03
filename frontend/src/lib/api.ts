@@ -4,6 +4,7 @@
 
 import axios from 'axios'
 import { APIError } from '@consentire/shared'
+import { createClient } from './supabase'
 
 const API_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:3001'
 
@@ -15,19 +16,21 @@ export const api = axios.create({
 })
 
 // Request interceptor
-api.interceptors.request.use(
-  (config) => {
-    // Add auth token if available
-    const token = localStorage.getItem('token')
-    if (token) {
-      config.headers.Authorization = `Bearer ${token}`
+api.interceptors.request.use(async (config) => {
+  try {
+    // Prefer Supabase session token
+    if (typeof window !== 'undefined') {
+      const supabase = createClient()
+      const { data } = await supabase.auth.getSession()
+      const token = data.session?.access_token || window.localStorage.getItem('token')
+      if (token) {
+        config.headers = config.headers || {}
+        ;(config.headers as any).Authorization = `Bearer ${token}`
+      }
     }
-    return config
-  },
-  (error) => {
-    return Promise.reject(error)
-  }
-)
+  } catch {}
+  return config
+})
 
 // Response interceptor
 api.interceptors.response.use(

@@ -9,47 +9,46 @@ import {
   APIError
 } from '@consentire/shared';
 import { generateUserId, generateDID, hash } from '../utils/crypto';
+import { authenticateUser, createUserProfile, getUserProfile, requireOwnership } from '../middleware/supabaseAuth';
 import { logger } from '../utils/logger';
 
 export const userRouter = Router();
 
-// In-memory user store (replace with database in production)
-const userStore: Map<string, UserRegistrationResponse> = new Map();
+// Production: use Supabase user profiles
 
 /**
  * POST /api/v1/users/register
  * Register a new user
  */
-userRouter.post('/register', async (req: Request, res: Response) => {
+userRouter.post('/register', authenticateUser, async (req: Request, res: Response) => {
   try {
     const request: UserRegistrationRequest = req.body;
-    
-    // Validate request
-    if (!request.email || !request.publicKey) {
+    if (!request.publicKey) {
       return res.status(400).json({
         code: 'VALIDATION_ERROR',
-        message: 'Missing required fields: email, publicKey',
+        message: 'Missing required field: publicKey',
         timestamp: Date.now()
       } as APIError);
     }
 
-    // Generate user identifiers
-    const userId = generateUserId(request.email, request.publicKey);
-    const did = generateDID(request.publicKey);
-    const walletAddress = hash(request.publicKey).substring(0, 40); // Simulated wallet address
+    await createUserProfile(req.user!.id, {
+      email: req.user!.email,
+      publicKey: request.publicKey,
+      walletAddress: hash(request.publicKey).substring(0, 40),
+      did: generateDID(request.publicKey),
+      metadata: request.metadata || {}
+    });
+
+    const profile = await getUserProfile(req.user!.id);
 
     const response: UserRegistrationResponse = {
-      userId,
-      did,
-      walletAddress,
-      createdAt: Date.now()
+      userId: profile.id,
+      did: profile.did,
+      walletAddress: profile.wallet_address,
+      createdAt: new Date(profile.created_at).getTime()
     };
 
-    // Store user
-    userStore.set(userId, response);
-
-    logger.info('User registered', { userId, did });
-
+    logger.info('User profile registered (Supabase)', { userId: response.userId });
     res.status(201).json(response);
   } catch (error: any) {
     logger.error('Error registering user', { error: error.message });
@@ -62,23 +61,44 @@ userRouter.post('/register', async (req: Request, res: Response) => {
 });
 
 /**
+ * GET /api/v1/users/me/profile
+ * Get current authenticated user's profile
+ */
+userRouter.get('/me/profile', authenticateUser, async (req: Request, res: Response) => {
+  try {
+    const profile = await getUserProfile(req.user!.id);
+    const response: UserRegistrationResponse = {
+      userId: profile.id,
+      did: profile.did,
+      walletAddress: profile.wallet_address,
+      createdAt: new Date(profile.created_at).getTime()
+    };
+    res.json(response);
+  } catch (error: any) {
+    logger.error('Error getting current user profile', { error: error.message });
+    res.status(500).json({
+      code: 'INTERNAL_ERROR',
+      message: error.message || 'Failed to get profile',
+      timestamp: Date.now()
+    } as APIError);
+  }
+});
+
+/**
  * GET /api/v1/users/:userId
  * Get user information
  */
-userRouter.get('/:userId', async (req: Request, res: Response) => {
+userRouter.get('/:userId', authenticateUser, requireOwnership('userId'), async (req: Request, res: Response) => {
   try {
     const { userId } = req.params;
-    const user = userStore.get(userId);
-    
-    if (!user) {
-      return res.status(404).json({
-        code: 'NOT_FOUND',
-        message: 'User not found',
-        timestamp: Date.now()
-      } as APIError);
-    }
-
-    res.json(user);
+    const profile = await getUserProfile(userId);
+    const response: UserRegistrationResponse = {
+      userId: profile.id,
+      did: profile.did,
+      walletAddress: profile.wallet_address,
+      createdAt: new Date(profile.created_at).getTime()
+    };
+    res.json(response);
   } catch (error: any) {
     logger.error('Error getting user', { error: error.message });
     res.status(500).json({

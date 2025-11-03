@@ -208,9 +208,9 @@ Get controller information.
 
 #### Get Compliance Status
 
-**GET** `/compliance/:controllerHash`
+**GET** `/compliance/status/:controllerHash`
 
-Get GDPR compliance status for a controller.
+Get GDPR compliance status for a controller. Requires an authenticated admin token.
 
 **Response:**
 ```json
@@ -232,24 +232,48 @@ Get GDPR compliance status for a controller.
 
 **GET** `/compliance/report/:controllerHash`
 
-Generate a compliance report.
+Generate a detailed compliance report. Requires an authenticated admin token.
 
 **Response:**
 ```json
 {
-  "controllerHash": "string",
-  "generatedAt": 1234567890,
-  "summary": {
-    "totalConsents": 0,
-    "activeConsents": 0,
-    "revokedConsents": 0,
-    "expiredConsents": 0
-  },
-  "complianceStatus": {
-    "overallScore": 100,
-    "articleCompliance": {}
-  },
-  "recommendations": []
+"controller": {
+  "organizationName": "string",
+  "organizationId": "string",
+  "controllerHash": "string"
+},
+"summary": {
+  "totalConsents": 42,
+  "activeConsents": 40,
+  "revokedConsents": 1,
+  "expiredConsents": 1
+},
+"metrics": {
+  "complianceScore": 97.5,
+  "totalConsents": 42,
+  "activeConsents": 40,
+  "revokedConsents": 1,
+  "expiredConsents": 1,
+  "lastAudit": 1700000000000
+},
+"recentConsents": [
+  {
+    "consentId": "uuid",
+    "purpose": "Marketing communications",
+    "status": "granted",
+    "grantedAt": "2024-01-01T00:00:00.000Z",
+    "hgtpTxHash": "hash"
+  }
+],
+"auditTrail": [
+  {
+    "id": "uuid",
+    "action": "consent_granted",
+    "timestamp": "2024-01-01T00:00:00.000Z",
+    "hgtpTxHash": "hash"
+  }
+],
+"generatedAt": 1700000000000
 }
 ```
 

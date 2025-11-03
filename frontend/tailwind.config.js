@@ -21,6 +21,10 @@ module.exports = {
           900: '#0c4a6e',
         },
       },
+      borderRadius: {
+        '4xl': '2rem',
+        '5xl': '2.5rem',
+      },
     },
   },
   plugins: [],

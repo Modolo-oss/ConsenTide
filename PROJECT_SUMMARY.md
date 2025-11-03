@@ -106,8 +106,8 @@ Consentire/
 - `GET /api/v1/controllers/:controllerId` - Get controller info
 
 ### Compliance
-- `GET /api/v1/compliance/:controllerHash` - Get compliance status
-- `GET /api/v1/compliance/report/:controllerHash` - Generate compliance report
+- `GET /api/v1/compliance/status/:controllerHash` - Get compliance status (admin)
+- `GET /api/v1/compliance/report/:controllerHash` - Generate compliance report (admin)
 
 ### Governance
 - `POST /api/v1/governance/proposals` - Submit proposal
