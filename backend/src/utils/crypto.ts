@@ -54,12 +54,33 @@ export function generateDID(publicKey: string): string {
 }
 
 /**
- * Verify signature (placeholder - implement actual signature verification)
+ * Verify signature using real cryptographic verification
  */
-export function verifySignature(message: string, signature: string, publicKey: string): boolean {
-  // TODO: Implement actual signature verification with cryptographic library
-  // This is a placeholder
-  return signature.length > 0 && publicKey.length > 0;
+export async function verifySignature(
+  message: string, 
+  signature: string, 
+  publicKey: string,
+  algorithm: 'ed25519' | 'secp256k1' = 'ed25519'
+): Promise<boolean> {
+  try {
+    const { cryptoService, SignatureAlgorithm } = await import('../services/cryptoService');
+    
+    const algorithmEnum = algorithm === 'ed25519' 
+      ? SignatureAlgorithm.ED25519 
+      : SignatureAlgorithm.SECP256K1;
+    
+    const result = await cryptoService.verifySignature(
+      message,
+      signature,
+      publicKey,
+      algorithmEnum
+    );
+    
+    return result.isValid;
+  } catch (error) {
+    console.error('Signature verification failed:', error);
+    return false;
+  }
 }
 
 /**

@@ -13,8 +13,8 @@ import {
   ConsentStatus
 } from '@consentire/shared';
 import { supabaseAdmin, ConsentRecord, AuditLogRecord } from '../config/supabase';
-import { zkService } from './zkService';
-import { hgtpService } from './hgtpService';
+import { realZKService } from './realZKService';
+import { realHGTPService } from './realHGTPService';
 import { 
   hash, 
   generateConsentId, 
@@ -69,7 +69,7 @@ class SupabaseConsentService {
       }
 
       // Generate ZK proof
-      const zkProof = await zkService.generateConsentProof({
+      const zkProof = await realZKService.generateConsentProof({
         userId,
         controllerId: request.controllerId,
         purpose: request.purpose,
@@ -104,8 +104,8 @@ class SupabaseConsentService {
         throw new Error(`Failed to insert consent: ${insertError.message}`);
       }
 
-      // Anchor to HGTP (mock for now)
-      const hgtpResult = await hgtpService.anchorConsent({
+      // Anchor to HGTP (real implementation)
+      const hgtpResult = await realHGTPService.anchorConsent({
         consentId,
         controllerHash,
         purposeHash,
@@ -209,7 +209,12 @@ class SupabaseConsentService {
       }
 
       // Generate ZK proof for verification
-      const zkProof = await zkService.generateVerificationProof({
+      const zkProof = await realZKService.generateVerificationProof(
+        consentRecord.controller_hash,
+        consentRecord.purpose_hash,
+        true,
+        new Date(consentRecord.granted_at).getTime()
+      );
         consentId: consentRecord.id,
         controllerHash: consentRecord.controller_hash,
         purposeHash: consentRecord.purpose_hash,
@@ -221,7 +226,7 @@ class SupabaseConsentService {
       });
 
       // Generate merkle proof from HGTP
-      const merkleProof = await hgtpService.getMerkleProof(consentRecord.id);
+      const merkleProof = await realHGTPService.getMerkleProof(consentRecord.id);
 
       // Create audit log for verification
       await this.createAuditLog({
@@ -295,7 +300,7 @@ class SupabaseConsentService {
       }
 
       // Update HGTP
-      const hgtpResult = await hgtpService.updateConsentStatus(
+      const hgtpResult = await realHGTPService.updateConsentStatus(
         request.consentId, 
         ConsentStatus.REVOKED
       );
