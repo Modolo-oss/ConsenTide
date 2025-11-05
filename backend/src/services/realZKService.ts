@@ -40,8 +40,8 @@ class RealZKService {
   
   constructor() {
     // Paths to circuit files (will be generated)
-    this.circuitWasm = path.join(__dirname, '../../circuits/consent.wasm');
-    this.circuitZkey = path.join(__dirname, '../../circuits/consent_final.zkey');
+    this.circuitWasm = path.join(process.cwd(), 'circuits/consent.wasm');
+    this.circuitZkey = path.join(process.cwd(), 'circuits/consent_final.zkey');
     
     this.initializeCircuits();
   }

@@ -2,14 +2,14 @@
  * Supabase client configuration for ConsenTide frontend
  */
 
-import { createClientComponentClient, createServerComponentClient } from '@supabase/auth-helpers-nextjs';
-import { cookies } from 'next/headers';
+import { createClient as createSupabaseClient } from '@supabase/supabase-js';
 
 // Client-side Supabase client
-export const createClient = () => createClientComponentClient();
-
-// Server-side Supabase client
-export const createServerClient = () => createServerComponentClient({ cookies });
+export const createClient = () => {
+  const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL || 'https://demo.supabase.co';
+  const supabaseKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY || 'demo-anon-key';
+  return createSupabaseClient(supabaseUrl, supabaseKey);
+};
 
 // Database types
 export interface ConsentRecord {

@@ -14,6 +14,7 @@ import { complianceRouter } from './routes/compliance';
 import { governanceRouter } from './routes/governance';
 import { errorHandler } from './middleware/errorHandler';
 import { logger } from './utils/logger';
+import { createDemoAccounts } from './utils/demoSetup';
 
 dotenv.config();
 
@@ -100,10 +101,18 @@ app.use((req: Request, res: Response) => {
 // Error handler
 app.use(errorHandler);
 
+// Initialize demo accounts (for hackathon evaluation)
+createDemoAccounts().catch(error => {
+  logger.error('Failed to create demo accounts:', error);
+});
+
 // Start server
 app.listen(PORT, () => {
-  logger.info(`🚀 ConsenTide API Gateway running on port ${PORT}`);
+  logger.info(`🚀 consentire API Gateway running on port ${PORT}`);
   logger.info(`📖 API Documentation: http://localhost:${PORT}/api/v1`);
+  if (process.env.NODE_ENV !== 'production') {
+    logger.info(`🎭 Demo accounts available for testing`);
+  }
 });
 
 export default app;

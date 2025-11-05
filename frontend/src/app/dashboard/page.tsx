@@ -19,6 +19,7 @@ import {
 
 export default function Dashboard() {
   const [userId, setUserId] = useState<string | null>(null)
+  const [userRole, setUserRole] = useState<string>('user')
   const [consents, setConsents] = useState<ConsentState[]>([])
   const [showGrantForm, setShowGrantForm] = useState(false)
   const [loading, setLoading] = useState(false)
@@ -43,10 +44,20 @@ export default function Dashboard() {
       const uid = data.session.user.id
       setUserId(uid)
 
+      // Get user role from metadata
+      const sessionUserRole = data.session.user.app_metadata?.role ||
+                             data.session.user.user_metadata?.role || 'user'
+      setUserRole(sessionUserRole)
+
+      // Auto-register user if not exists
       try {
         await api.get('/users/me/profile')
       } catch {
-        await api.post('/users/register', { publicKey: `supabase:${uid}` })
+        await api.post('/users/register', {
+          email: data.session.user.email || `${uid}@consentire.local`,
+          publicKey: `supabase:${uid}`,
+          role: sessionUserRole
+        })
       }
 
       await loadConsents()
@@ -56,7 +67,16 @@ export default function Dashboard() {
 
   const supabaseSignIn = async () => {
     const supabase = createClient()
-    await supabase.auth.signInWithOAuth({ provider: 'github' })
+    await supabase.auth.signInWithOAuth({
+      provider: 'github',
+      options: {
+        redirectTo: `${window.location.origin}/dashboard`
+      }
+    })
+  }
+
+  const handleEmailSignIn = () => {
+    window.location.href = '/login'
   }
 
   const loadConsents = async () => {
@@ -119,10 +139,26 @@ export default function Dashboard() {
           <div className="flex items-center justify-between">
             <div className="flex items-center space-x-2">
               <ShieldCheckIcon className="h-8 w-8 text-primary-600" />
-              <h1 className="text-2xl font-bold text-gray-900">ConsenTide Dashboard</h1>
+              <h1 className="text-2xl font-bold text-gray-900">consentire Dashboard</h1>
             </div>
-            <div className="text-sm text-gray-600">
-              {signedIn ? `User ID: ${userId?.substring(0, 16)}...` : 'Not signed in'}
+            <div className="flex items-center space-x-4">
+              {signedIn && (
+                <div className="text-sm text-gray-600">
+                  {userRole === 'user' ? 'Individual' : userRole === 'organization' ? 'Organization' : 'Regulator'} User: {userId?.substring(0, 16)}...
+                </div>
+              )}
+              {signedIn && (
+                <button
+                  onClick={async () => {
+                    const supabase = createClient()
+                    await supabase.auth.signOut()
+                    window.location.reload()
+                  }}
+                  className="text-sm text-gray-500 hover:text-gray-700"
+                >
+                  Sign out
+                </button>
+              )}
             </div>
           </div>
         </div>
@@ -131,29 +167,68 @@ export default function Dashboard() {
       <main className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
         {!signedIn && (
           <div className="bg-white rounded-lg shadow p-8 text-center mb-6">
-            <p className="text-gray-700 mb-4">Please sign in to manage your consents.</p>
-            <button onClick={supabaseSignIn} className="bg-primary-600 text-white px-4 py-2 rounded-lg font-semibold hover:bg-primary-700 transition">Sign in</button>
+            <ShieldCheckIcon className="h-16 w-16 text-blue-600 mx-auto mb-4" />
+            <h2 className="text-2xl font-bold text-gray-900 mb-2">Welcome to ConsenTide</h2>
+            <p className="text-gray-700 mb-6">Sign in to manage your GDPR consents with zero-knowledge privacy.</p>
+            <div className="space-y-3">
+              <button onClick={handleEmailSignIn} className="w-full bg-blue-600 text-white px-6 py-3 rounded-lg font-semibold hover:bg-blue-700 transition">
+                Sign in with Email
+              </button>
+              <button onClick={supabaseSignIn} className="w-full bg-gray-100 text-gray-700 px-6 py-3 rounded-lg font-semibold hover:bg-gray-200 transition">
+                Sign in with GitHub
+              </button>
+            </div>
+            <p className="text-sm text-gray-500 mt-4">
+              New user? <a href="/register" className="text-blue-600 hover:text-blue-800">Create an account</a>
+            </p>
           </div>
         )}
 
         {/* Actions */}
-        <div className="mb-6 flex justify-between items-center">
-          <h2 className="text-2xl font-bold text-gray-900">My Consents</h2>
-          <button
-            onClick={() => setShowGrantForm(true)}
-            disabled={!signedIn}
-            className="bg-primary-600 text-white px-4 py-2 rounded-lg font-semibold hover:bg-primary-700 transition flex items-center space-x-2 disabled:opacity-50 disabled:cursor-not-allowed"
-          >
-            <PlusIcon className="h-5 w-5" />
-            <span>Grant New Consent</span>
-          </button>
-        </div>
+        {signedIn && (
+          <div className="mb-6 flex justify-between items-center">
+            <div>
+              <h2 className="text-2xl font-bold text-gray-900">
+                {userRole === 'user' ? 'My Consents' :
+                 userRole === 'organization' ? 'Consent Management' :
+                 'Compliance Oversight'}
+              </h2>
+              <p className="text-sm text-gray-600 mt-1">
+                {userRole === 'user' ? 'Manage your GDPR consent permissions across organizations' :
+                 userRole === 'organization' ? 'Manage customer consents and compliance' :
+                 'Monitor compliance across organizations and jurisdictions'}
+              </p>
+            </div>
+            {userRole !== 'regulator' && (
+              <button
+                onClick={() => setShowGrantForm(true)}
+                className="bg-primary-600 text-white px-6 py-3 rounded-lg font-semibold hover:bg-primary-700 transition flex items-center space-x-2"
+              >
+                <PlusIcon className="h-5 w-5" />
+                <span>
+                  {userRole === 'user' ? 'Grant New Consent' : 'Add Consent Record'}
+                </span>
+              </button>
+            )}
+          </div>
+        )}
 
         {/* Consents List */}
         {signedIn && consents.length === 0 ? (
           <div className="bg-white rounded-lg shadow p-8 text-center">
-            <p className="text-gray-600 mb-4">You haven't granted any consents yet.</p>
-            <button onClick={() => setShowGrantForm(true)} className="bg-primary-600 text-white px-4 py-2 rounded-lg font-semibold hover:bg-primary-700 transition">Grant Consent</button>
+            <p className="text-gray-600 mb-4">
+              {userRole === 'user' ? "You haven't granted any consents yet." :
+               userRole === 'organization' ? "No consent records found." :
+               "No compliance data available."}
+            </p>
+            {userRole !== 'regulator' && (
+              <button
+                onClick={() => setShowGrantForm(true)}
+                className="bg-primary-600 text-white px-4 py-2 rounded-lg font-semibold hover:bg-primary-700 transition"
+              >
+                {userRole === 'user' ? 'Grant Consent' : 'Add Record'}
+              </button>
+            )}
           </div>
         ) : signedIn ? (
           <div className="grid gap-4">
@@ -162,6 +237,7 @@ export default function Dashboard() {
                 key={consent.consentId}
                 consent={consent}
                 onRevoke={handleRevokeConsent}
+                userRole={userRole}
               />
             ))}
           </div>
@@ -183,12 +259,14 @@ export default function Dashboard() {
   )
 }
 
-function ConsentCard({ 
-  consent, 
-  onRevoke 
-}: { 
-  consent: ConsentState, 
-  onRevoke: (id: string) => void 
+function ConsentCard({
+  consent,
+  onRevoke,
+  userRole
+}: {
+  consent: ConsentState,
+  onRevoke: (id: string) => void,
+  userRole: string
 }) {
   const getStatusIcon = (status: ConsentStatus) => {
     switch (status) {
@@ -226,7 +304,7 @@ function ConsentCard({
             <p><strong>HGTP TX Hash:</strong> {consent.hgtpTxHash.substring(0, 16)}...</p>
           </div>
         </div>
-        {consent.status === ConsentStatus.GRANTED && (
+        {consent.status === ConsentStatus.GRANTED && userRole === 'user' && (
           <button
             onClick={() => onRevoke(consent.consentId)}
             className="bg-red-600 text-white px-4 py-2 rounded-lg text-sm font-semibold hover:bg-red-700 transition"
